@@ -142,34 +142,6 @@ chutada: mudar a quantidade de nomes não quebra o alinhamento.
 | Sadie Sink | — |
 | Mark Ruffalo | Bruce Banner / Hulk |
 
-## Ajustes rápidos
-
-**Trocar os nomes do elenco** — o JS não tem nenhum nome escrito nele. Edite só
-o HTML, em três lugares que precisam ficar na mesma ordem:
-
-1. os blocos `.cast__slide` (nome + papel);
-2. os `<li class="cast__item">` da lista lateral;
-3. o `alt` de cada `<img>` em `.cast__media`.
-
-Para mudar a **quantidade** de atores, acrescente/remova um `.cast__slide`, um
-`.cast__item` e um `.cast__shot` (com a foto em `assets/elenco/`) — o
-`STOPS` se ajusta sozinho ([main.js:566](main.js#L566)).
-
-**Ritmo das animações** — constantes no topo de cada bloco de
-[main.js](main.js):
-
-| Constante | Efeito |
-| --- | --- |
-| `ACT_1` / `ACT_2` | proporção entre a sequência de frames e o reveal |
-| `SCROLL_PER_UNIT` | quanto de rolagem vale uma unidade de timeline |
-| `CHAR_FADE` / `CHAR_SPREAD` | velocidade e espalhamento da troca letra a letra |
-| `CAST_DURATION` | duração total da seção de elenco |
-| `FRAME_COUNT` | número de imagens em `assets/frames/` |
-| `FOCUS_X` / `FOCUS_Y` | enquadramento do canvas (equivale a `background-position`) |
-
-**Escala** — o CSS usa `--u: calc(100cqw / 1920)`: o design foi feito em
-1920px e tudo escala proporcionalmente. Há um breakpoint em `700px`.
-
 ## Acessibilidade
 
 - `SplitText` roda com `aria: "auto"`, então leitores de tela continuam lendo os
