@@ -7,6 +7,10 @@ HTML, CSS e JavaScript puros, com todas as animações dirigidas pela rolagem vi
 > Projeto de estudo/portfólio. Não tem vínculo com a Marvel, a Sony ou a Disney;
 > as marcas e o material audiovisual pertencem aos seus respectivos donos.
 
+<p align="center">
+  <img src="assets/spiderman.png" alt="Hero" width="100%" />
+</p>
+
 ---
 
 ## Sumário
