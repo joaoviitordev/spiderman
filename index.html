@@ -54,13 +54,17 @@
          desenhada no <canvas>, controlada pela rolagem. -->
           <div class="reveal">
             <div class="reveal__frame">
+              <!-- preload="none" de propósito: o arquivo tem ~18 MB e só é
+                   visto no ato 2. O JS arma o download quando a rolagem se
+                   aproxima do reveal (ver player.arm() em main.js). -->
               <video
                 class="reveal__video"
                 src="assets/trailer.mp4"
                 muted
                 loop
-                autoplay
-                preload="auto"
+                playsinline
+                webkit-playsinline
+                preload="none"
                 aria-label="Trailer de Spider-Man: Um Novo Dia"
               ></video>
 
@@ -301,30 +305,35 @@
           <div class="cast__info">
             <p class="cast__label">elenco</p>
 
-            <!-- Os cinco pares nome + papel ficam empilhados no mesmo ponto;
+            <!-- Os seis pares nome + papel ficam empilhados no mesmo ponto;
            a troca é um crossfade (ver main.js).
-           NOMES GENÉRICOS: é só trocar o texto daqui, do .cast__list e do
-           alt das imagens — o JS não tem nenhum nome escrito nele. -->
+           O JS não tem nenhum nome escrito nele: para editar o elenco basta
+           mexer aqui, no .cast__list e no .cast__media — sempre na mesma
+           ordem e sempre com a mesma quantidade de itens nos três. -->
             <div class="cast__person">
               <div class="cast__slide">
-                <h2 class="cast__name">Ator Um</h2>
-                <p class="cast__role">Personagem Um</p>
+                <h2 class="cast__name">Tom Holland</h2>
+                <p class="cast__role">Peter Parker / Homem-Aranha</p>
               </div>
               <div class="cast__slide">
-                <h2 class="cast__name">Ator Dois</h2>
-                <p class="cast__role">Personagem Dois</p>
+                <h2 class="cast__name">Zendaya</h2>
+                <p class="cast__role">Michelle &ldquo;MJ&rdquo; Jones</p>
               </div>
               <div class="cast__slide">
-                <h2 class="cast__name">Ator Três</h2>
-                <p class="cast__role">Personagem Três</p>
+                <h2 class="cast__name">Jacob Batalon</h2>
+                <p class="cast__role">Ned Leeds</p>
               </div>
               <div class="cast__slide">
-                <h2 class="cast__name">Ator Quatro</h2>
-                <p class="cast__role">Personagem Quatro</p>
+                <h2 class="cast__name">Jon Bernthal</h2>
+                <p class="cast__role">Frank Castle / Justiceiro</p>
               </div>
               <div class="cast__slide">
-                <h2 class="cast__name">Ator Cinco</h2>
-                <p class="cast__role">Personagem Cinco</p>
+                <h2 class="cast__name">Sadie Sink</h2>
+                <p class="cast__role">Personagem não revelado</p>
+              </div>
+              <div class="cast__slide">
+                <h2 class="cast__name">Mark Ruffalo</h2>
+                <p class="cast__role">Bruce Banner / Hulk</p>
               </div>
             </div>
 
@@ -345,12 +354,13 @@
 
               <ul class="cast__list">
                 <li class="cast__item cast__item--active" aria-current="true">
-                  Personagem Um
+                  Homem-Aranha
                 </li>
-                <li class="cast__item">Personagem Dois</li>
-                <li class="cast__item">Personagem Três</li>
-                <li class="cast__item">Personagem Quatro</li>
-                <li class="cast__item">Personagem Cinco</li>
+                <li class="cast__item">MJ</li>
+                <li class="cast__item">Ned Leeds</li>
+                <li class="cast__item">Justiceiro</li>
+                <li class="cast__item">???</li>
+                <li class="cast__item">Hulk</li>
               </ul>
             </div>
           </div>
@@ -361,31 +371,60 @@
             <div class="cast__shot">
               <img
                 src="assets/elenco/img1.webp"
-                alt="Ator Um como Personagem Um"
+                alt="Tom Holland como Peter Parker, o Homem-Aranha"
+                loading="eager"
+                fetchpriority="low"
+                decoding="async"
               />
             </div>
             <div class="cast__shot">
               <img
                 src="assets/elenco/img2.webp"
-                alt="Ator Dois como Personagem Dois"
+                alt="Zendaya como Michelle “MJ” Jones"
+                loading="lazy"
+                decoding="async"
               />
             </div>
             <div class="cast__shot">
               <img
                 src="assets/elenco/img3.webp"
-                alt="Ator Três como Personagem Três"
+                alt="Jacob Batalon como Ned Leeds"
+                loading="lazy"
+                decoding="async"
               />
             </div>
             <div class="cast__shot">
               <img
                 src="assets/elenco/img4.webp"
-                alt="Ator Quatro como Personagem Quatro"
+                alt="Jon Bernthal como Frank Castle, o Justiceiro"
+                loading="lazy"
+                decoding="async"
               />
             </div>
+
+            <!-- Sadie Sink ainda não tem foto divulgada: entra um card de
+                 mistério no lugar. Para trocar por uma imagem de verdade,
+                 substitua este bloco por um <div class="cast__shot"> com um
+                 <img> igual aos de cima — o JS conta os .cast__shot sozinho. -->
+            <div class="cast__shot cast__shot--mystery">
+              <div class="cast__mystery">
+                <img
+                  class="cast__mystery-icon"
+                  src="assets/logotipo-aranha.svg"
+                  alt=""
+                  width="38"
+                  height="50"
+                />
+                <p class="cast__mystery-text">Personagem não revelado</p>
+              </div>
+            </div>
+
             <div class="cast__shot">
               <img
                 src="assets/elenco/img5.webp"
-                alt="Ator Cinco como Personagem Cinco"
+                alt="Mark Ruffalo como Bruce Banner"
+                loading="lazy"
+                decoding="async"
               />
             </div>
           </figure>

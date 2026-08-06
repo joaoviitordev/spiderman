@@ -16,9 +16,11 @@ HTML, CSS e JavaScript puros, com todas as animações dirigidas pela rolagem vi
 - [Estrutura](#estrutura)
 - [Como a página funciona](#como-a-página-funciona)
 - [Elenco](#elenco)
+- [Performance](#performance)
 - [Ajustes rápidos](#ajustes-rápidos)
 - [Acessibilidade](#acessibilidade)
-- [Pendências conhecidas](#pendências-conhecidas)
+- [Movimento reduzido](#movimento-reduzido)
+- [Redimensionamento](#redimensionamento)
 
 ---
 
@@ -44,7 +46,7 @@ bem em `file://`.
 **VS Code + Live Server** (já configurado na porta `5501` em
 [.vscode/settings.json](.vscode/settings.json)):
 
-```
+```text
 Botão direito em index.html → "Open with Live Server"
 ```
 
@@ -60,11 +62,12 @@ Depois acesse `http://localhost:5501`.
 
 ## Estrutura
 
-```
+```text
 spiderMan/
 ├── index.html                # as duas seções: hero e elenco
 ├── style.css                 # layout fluido, shapes e estados do player
-├── main.js                   # todas as timelines GSAP
+├── main.js                   # timelines GSAP + modo de movimento reduzido
+├── README.md
 └── assets/
     ├── frames/               # 59 JPGs da sequência controlada pelo scroll
     ├── elenco/               # img1..img5.webp — fotos do elenco
@@ -83,6 +86,10 @@ spiderMan/
 
 A rolagem inteira passa pelo `ScrollSmoother` (2s de suavização), por isso todo
 o conteúdo vive dentro de `#smooth-wrapper > #smooth-content`.
+
+O que vem a seguir descreve o comportamento padrão; quem pede
+[movimento reduzido](#movimento-reduzido) recebe uma versão parada da mesma
+página.
 
 ### Seção 1 — Hero
 
@@ -106,13 +113,15 @@ Uma máscara abre do centro: primeiro a altura (vira uma faixa horizontal),
 depois a largura. O logo e a sinopse não são animados por tempo — eles são
 **empurrados** pela borda da máscara: enquanto a borda não os alcança, ficam
 parados; a partir do encontro, andam colados nela
-([main.js:175-182](main.js#L175-L182)). O frame do vídeo já nasce com a altura
+([main.js:224-232](main.js#L224-L232)). O frame do vídeo já nasce com a altura
 final, então o trailer não estica: só é revelado.
 
 ### O player
 
-Tem dois modos ([main.js:190-325](main.js#L190-L325)):
+Tem três estados:
 
+- **dormindo** — `preload="none"`, nada baixado. O `<video>` fica assim até a
+  rolagem chegar a 85% do ato 1, quando `player.arm()` libera o download;
 - **prévia** — mudo, em loop, com overlay escuro; é o que roda enquanto a
   máscara abre;
 - **assistindo** — começa do zero, com som, overlay some e os controles entram.
@@ -134,27 +143,54 @@ chutada: mudar a quantidade de nomes não quebra o alinhamento.
 
 ## Elenco
 
-| Ator | Personagem |
-| --- | --- |
-| Tom Holland | Peter Parker / Homem-Aranha |
-| Zendaya | MJ |
-| Jacob Batalon | Ned Leeds |
-| Jon Bernthal | Frank Castle / Justiceiro |
-| Sadie Sink | — |
-| Mark Ruffalo | Bruce Banner / Hulk |
+| # | Ator | Personagem | Foto |
+| --- | --- | --- | --- |
+| 1 | Tom Holland | Peter Parker / Homem-Aranha | `elenco/img1.webp` |
+| 2 | Zendaya | Michelle “MJ” Jones | `elenco/img2.webp` |
+| 3 | Jacob Batalon | Ned Leeds | `elenco/img3.webp` |
+| 4 | Jon Bernthal | Frank Castle / Justiceiro | `elenco/img4.webp` |
+| 5 | Sadie Sink | Personagem não revelado | card de mistério |
+| 6 | Mark Ruffalo | Bruce Banner / Hulk | `elenco/img5.webp` |
+
+O papel da Sadie Sink não foi divulgado, então o slot 5 usa um **card de
+mistério** no lugar da foto: fundo em degradê com o logotipo da aranha e a
+legenda "personagem não revelado". Para trocar por uma foto de verdade, basta
+substituir o `.cast__shot--mystery` por um `.cast__shot` com `<img>`, igual aos
+outros.
+
+## Performance
+
+O gargalo era o `trailer.mp4`: **18 MB**, contra 2,3 MB de todos os 59 frames
+somados. Três medidas atacam isso:
+
+- **Trailer sob demanda** — o `<video>` nasce com `preload="none"` e sem
+  `autoplay`. O download só começa quando a rolagem passa de `ARM_AT` (85% do
+  ato 1), com folga para bufferizar antes de a máscara abrir. Quem só olha a
+  hero e sai não baixa 18 MB.
+- **Frames em fila** — em HTTP/2 os 59 `src` disparados de uma vez baixam todos
+  em paralelo, e os primeiros frames (os que aparecem primeiro) chegam junto
+  com os últimos. A fila mantém a ordem com no máximo `PARALLEL_LOADS = 4`
+  downloads simultâneos, então o começo da sequência fica pronto quase de
+  imediato.
+- **Fotos do elenco** — `loading="lazy"` da segunda em diante; a primeira é
+  `eager` com `fetchpriority="low"` para não competir com a hero.
+
+O `<video>` também ganhou `playsinline`, sem o qual o iOS abriria o trailer em
+tela cheia por conta própria.
 
 ## Ajustes rápidos
 
 **Trocar os nomes do elenco** — o JS não tem nenhum nome escrito nele. Edite só
-o HTML, em três lugares que precisam ficar na mesma ordem:
+o HTML, em três lugares que precisam ficar na mesma ordem **e com a mesma
+quantidade de itens**:
 
 1. os blocos `.cast__slide` (nome + papel);
 2. os `<li class="cast__item">` da lista lateral;
-3. o `alt` de cada `<img>` em `.cast__media`.
+3. os `.cast__shot` em `.cast__media` (e o `alt` de cada `<img>`).
 
-Para mudar a **quantidade** de atores, acrescente/remova um `.cast__slide`, um
-`.cast__item` e um `.cast__shot` (com a foto em `assets/elenco/`) — o
-`STOPS` se ajusta sozinho ([main.js:499](main.js#L499)).
+Para mudar a **quantidade** de atores, acrescente/remova um item em cada um dos
+três — o `STOPS` se ajusta sozinho ([main.js:615](main.js#L615)) e a aranha
+continua parando na altura certa, porque as posições são medidas no DOM.
 
 **Ritmo das animações** — constantes no topo de cada bloco de
 [main.js](main.js):
@@ -171,6 +207,10 @@ Para mudar a **quantidade** de atores, acrescente/remova um `.cast__slide`, um
 **Escala** — o CSS usa `--u: calc(100cqw / 1920)`: o design foi feito em
 1920px e tudo escala proporcionalmente. Há um breakpoint em `700px`.
 
+**Desvio do Figma** — dois valores da coluna de elenco mudaram para acomodar
+nomes reais: a coluna passou de 333u para 453u e o `.cast__name` de 62u para
+56u. Em 62u/333u, "Jacob Batalon" quebrava em duas linhas por cima do seletor.
+
 ## Acessibilidade
 
 - `SplitText` roda com `aria: "auto"`, então leitores de tela continuam lendo os
@@ -179,16 +219,30 @@ Para mudar a **quantidade** de atores, acrescente/remova um `.cast__slide`, um
   `aria-valuenow` atualizado.
 - Arte decorativa marcada com `aria-hidden` e `alt=""`.
 - O nome ativo do elenco recebe `aria-current="true"`.
+- Toda a experiência tem um caminho alternativo sem movimento — abaixo.
 
-## Pendências conhecidas
+## Movimento reduzido
 
-- **Elenco com placeholders**: o HTML ainda traz "Ator Um … Ator Cinco". Os
-  nomes reais da tabela acima precisam ser preenchidos — e são **seis atores
-  para cinco slots**, então falta decidir se entra um sexto par foto + nome ou
-  se um dos nomes fica de fora.
-- **Resize desativado**: o listener de `resize` está comentado no fim de
-  [main.js:633-646](main.js#L633-L646). Redimensionar a janela não refaz as
-  timelines nem as medidas.
-- **Peso dos assets**: 59 JPGs + o `trailer.mp4` carregam sem lazy-load; só o
-  primeiro frame tem `preload`.
-- **Sem fallback para `prefers-reduced-motion`**.
+Com `prefers-reduced-motion: reduce` no sistema, a página serve o **mesmo
+conteúdo sem sequestrar a rolagem**. Nada de `ScrollSmoother`, de `pin` nem de
+`scrub`:
+
+| | Normal | Reduzido |
+| --- | --- | --- |
+| Rolagem | suavizada (2s) | nativa |
+| Hero | 600% pinnada, 59 frames | pôster estático (1º frame) |
+| Sinopse | troca letra a letra | os três parágrafos empilhados, de uma vez |
+| Trailer | reveal no ato 2 | abre pelo link **TRAILER** do menu, fecha no `Esc` |
+| Elenco | pinnado, troca por scroll | lista clicável (mouse, `Tab`, `Enter`/espaço) |
+
+Nenhuma informação some: as três sinopses passam a ser um texto corrido só (que
+é como elas realmente se encadeiam) e os seis atores ficam a um clique.
+
+## Redimensionamento
+
+O `resize` refaz o canvas e a altura da foto do elenco **sempre**, mas só
+reconstrói as timelines (que matam o `SplitText` e remedem tudo) quando a
+**largura** muda — no mobile, a barra de endereço entrando e saindo muda a
+altura o tempo todo e não deve disparar rebuild. O rebuild é debounced em 250ms,
+e `orientationchange` tem um atraso próprio de 300ms porque nem sempre o evento
+chega com as medidas novas.

@@ -18,17 +18,25 @@
 
 gsap.registerPlugin(ScrollTrigger, ScrollSmoother, SplitText);
 
+/* Quem pede menos movimento no sistema recebe a MESMA página, mas parada:
+   sem rolagem suave, sem pin, sem scrub. O conteúdo continua todo acessível
+   — as três sinopses aparecem juntas, o elenco vira uma lista clicável e o
+   trailer abre pelo link TRAILER do menu. Ver seção 5. */
+const REDUCED = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
 // ScrollSmoother -> suave rolagem
 /* ==========================================================================
    1 — ROLAGEM SUAVE
    ========================================================================== */
-ScrollSmoother.create({
-  wrapper: "#smooth-wrapper",
-  content: "#smooth-content",
-  smooth: 2,          // segundos que a página leva para "alcançar" a rolagem
-  effects: true,
-  normalizeScroll: true
-});
+if (!REDUCED) {
+  ScrollSmoother.create({
+    wrapper: "#smooth-wrapper",
+    content: "#smooth-content",
+    smooth: 2,          // segundos que a página leva para "alcançar" a rolagem
+    effects: true,
+    normalizeScroll: true
+  });
+}
 
 
 /* ==========================================================================
@@ -49,14 +57,51 @@ const ctx    = canvas.getContext("2d", { alpha: false });
    reprodução suave mesmo com só 59 imagens. */
 const playhead = { frame: 0 };
 
+/* --------------------------------------------------------------------------
+   Carregamento em fila.
+   Disparar os 59 `src` de uma vez faz o navegador (em HTTP/2) baixar todos em
+   paralelo: os primeiros frames — justamente os que aparecem primeiro —
+   chegam junto com os últimos, e ainda disputam banda com a fonte e a arte da
+   Hero. A fila mantém a ORDEM e limita a quantidade de downloads simultâneos,
+   então o começo da sequência fica pronto quase de imediato e o resto vai
+   entrando enquanto a pessoa lê a primeira sinopse.
+   -------------------------------------------------------------------------- */
+const PARALLEL_LOADS = 4;
+
 const frames = [];
+const sources = [];
+
 for (let i = 1; i <= FRAME_COUNT; i++) {
   const img = new Image();
-  img.src = `assets/frames/ezgif-frame-${String(i).padStart(3, "0")}.jpg`;
+  img.decoding = "async";
   /* redesenha assim que cada imagem chega, para o canvas nunca ficar vazio */
-  img.addEventListener("load", render, { once: true });
+  img.addEventListener("load", onFrameSettled, { once: true });
+  /* um frame que falhou não pode travar a fila: o render pula quem não tem
+     naturalWidth e o crossfade segue com o vizinho */
+  img.addEventListener("error", onFrameSettled, { once: true });
+
   frames.push(img);
+  sources.push(`assets/frames/ezgif-frame-${String(i).padStart(3, "0")}.jpg`);
 }
+
+let nextFrame = 0;
+let inFlight = 0;
+
+function pumpFrames() {
+  while (nextFrame < sources.length && inFlight < PARALLEL_LOADS) {
+    frames[nextFrame].src = sources[nextFrame];
+    nextFrame++;
+    inFlight++;
+  }
+}
+
+function onFrameSettled() {
+  inFlight--;
+  render();
+  pumpFrames();
+}
+
+pumpFrames();
 
 /* Desenha a imagem cobrindo o canvas (equivalente a background-size: cover) */
 function drawCover(img, alpha) {
@@ -117,6 +162,10 @@ const ACT_1 = 10;
 const ACT_2 = 5;
 const TL_DURATION = ACT_1 + ACT_2;
 const SCROLL_PER_UNIT = 40;
+
+/* Progresso da timeline em que o trailer começa a ser baixado: 85% do ato 1,
+   ou seja, pouco antes de a máscara começar a abrir. */
+const ARM_AT = (ACT_1 * 0.85) / TL_DURATION;
 
 /* Quanto tempo cada letra leva para sumir/aparecer... */
 const CHAR_FADE = 0.5;
@@ -181,11 +230,39 @@ function applyReveal() {
   setTextsX( Math.max(0, half - textsGap));
 }
 
+/* A mesma máscara, aberta e fechada de uma vez só. É por aqui que o modo
+   reduzido dá acesso ao trailer, já que lá não existe o ato 2. */
+function openTrailer() {
+  rv.w = window.innerWidth;
+  rv.h = window.innerHeight;
+  applyReveal();
+
+  /* No fluxo normal quem revela o botão é o passo 3.6 da timeline; aqui não
+     há timeline nenhuma, então ele é posto no lugar na mão. */
+  gsap.set(".player__big", { opacity: 1, scale: 1 });
+
+  /* ready() e não arm(): o vídeo baixa, mas só toca quando a pessoa mandar */
+  player.ready();
+  player.setReady(true);
+}
+
+function closeTrailer() {
+  rv.w = 0;
+  rv.h = 0;
+  applyReveal();
+
+  gsap.set(".player__big", { opacity: 0, scale: .75 });
+
+  player.sleep();
+  player.setReady(false);
+}
+
 
 /* --------------------------------------------------------------------------
    PLAYER
-   Dois modos: "prévia" (mudo, em loop, com overlay — o que roda enquanto a
-   máscara abre) e "assistindo" (do começo, com som e com os controles).
+   Três estados: "dormindo" (preload="none", nada baixado), "prévia" (mudo, em
+   loop, com overlay — o que roda enquanto a máscara abre) e "assistindo" (do
+   começo, com som e com os controles).
    -------------------------------------------------------------------------- */
 const player = (() => {
   const root    = document.querySelector(".player");
@@ -204,6 +281,7 @@ const player = (() => {
 
   let watching = false;
   let seeking  = false;
+  let armed    = false;
 
   const fmt = s => {
     if (!isFinite(s) || s < 0) return "0:00";
@@ -211,6 +289,28 @@ const player = (() => {
   };
 
   /* ---------- modos ---------- */
+
+  /* O trailer tem ~18 MB e o <video> nasce com preload="none": nada é baixado
+     até esta função ser chamada. Quem chama é a própria rolagem, quando o
+     ato 2 se aproxima (ver o onUpdate do ScrollTrigger) — assim quem só passa
+     pela Hero e sai nunca paga o download. */
+  function arm() {
+    if (armed) return;
+    ready();
+    preview();
+  }
+
+  /* Libera o download SEM começar a tocar. É o que o modo reduzido usa: lá,
+     uma prévia em loop rodando sozinha seria exatamente o movimento que a
+     pessoa pediu para não ver. */
+  function ready() {
+    if (armed) return;
+    armed = true;
+
+    video.preload = "auto";
+    video.load();   // só mudar o preload não reinicia a busca do arquivo
+  }
+
   function preview() {
     video.loop = true;
     video.muted = true;
@@ -227,8 +327,17 @@ const player = (() => {
     gsap.to(overlay, { opacity: 1, duration: .3, overwrite: true });
   }
 
+  /* Fecha de vez: usado no modo reduzido, onde não existe "prévia" rodando
+     ao fundo — se o trailer está escondido, ele fica parado. */
+  function sleep() {
+    reset();
+    video.pause();
+  }
+
   function watch() {
     watching = true;
+    armed = true;
+    video.preload = "auto";
 
     root.classList.add("is-playing");
     root.classList.remove("is-paused", "is-muted");
@@ -319,9 +428,9 @@ const player = (() => {
     if (e.key === " " && watching) { e.preventDefault(); toggle.click(); }
   });
 
-  preview();
+  /* Nada de preview() aqui: o vídeo só acorda quando arm() for chamado. */
 
-  return { reset, setReady };
+  return { arm, ready, reset, sleep, setReady };
 })();
 
 
@@ -350,6 +459,9 @@ function buildTimeline() {
 
   /* --- estado inicial do ato 2 --- */
   gsap.set([title, textBox], { x: 0 });
+  /* Precisa ser explícito: num rebuild o botão pode ter ficado visível, e o
+     .to() do passo 3.6 gravaria opacity 1 como valor INICIAL do tween. */
+  gsap.set(".player__big", { opacity: 0, scale: .75 });
   measurePush();
   rv.w = 0;
   rv.h = 0;
@@ -370,6 +482,10 @@ function buildTimeline() {
          (rolando pra cima ou pra baixo) devolve o trailer ao modo prévia,
          para não deixar o áudio tocando fora da tela */
       onUpdate: self => {
+        /* Perto do fim do ato 1 o trailer começa a baixar, com folga para já
+           estar bufferizado quando a máscara abrir. */
+        if (self.progress > ARM_AT) player.arm();
+
         const open = self.progress > 0.99;
         player.setReady(open);
         if (!open) player.reset();
@@ -608,19 +724,113 @@ function buildCast() {
 
 
 /* ==========================================================================
-   5 — BOOT E RESIZE
+   5 — MODO REDUZIDO
+   A mesma página, sem rolagem sequestrada. Nada de pin, de scrub nem de
+   troca automática: a Hero vira um pôster com a sinopse inteira e a seção de
+   elenco vira uma lista que a pessoa controla no clique ou no teclado.
    ========================================================================== */
-resizeCanvas();
-buildTimeline();
-buildCast();
+let reducedWired = false;
+let castIndex = 0;      // quem está em cena; sobrevive aos rebuilds do resize
+
+/* --- Hero parada: primeiro frame + as três sinopses juntas --- */
+function staticHero() {
+  playhead.frame = 0;
+  render();
+
+  /* sem troca letra a letra, o SplitText não tem função */
+  splits.forEach(s => s.revert());
+  splits = [];
+
+  /* Os três parágrafos são um texto só, em sequência — no CSS do modo
+     reduzido eles voltam ao fluxo normal e aparecem empilhados. */
+  gsap.set(textEls, { opacity: 1 });
+  gsap.set(textBox, { color: "rgba(0, 0, 0, 0.9)", x: 0 });
+  gsap.set(ring, { filter: "invert(0)" });
+  gsap.set(title, { x: 0 });
+
+  measurePush();
+
+  /* num rebuild (resize) o trailer pode estar aberto: remede sem fechá-lo */
+  if (rv.w > 0) openTrailer();
+  else closeTrailer();
+}
+
+/* --- Elenco parado: mostra um ator por vez, sob comando --- */
+function showCast(i) {
+  castIndex = i;
+
+  /* as fotos se empilham: tudo até a atual fica aberto, o resto fechado */
+  shots.forEach((el, k) => gsap.set(el, { height: k <= i ? "100%" : "0%" }));
+  slides.forEach((el, k) => gsap.set(el, { opacity: k === i ? 1 : 0, y: 0 }));
+
+  pick.t = i / (STOPS - 1);
+  applyPick();
+}
+
+function staticCast() {
+  measureCast();
+  showCast(castIndex);
+}
+
+/* Listeners que só existem no modo reduzido. Ficam fora das funções acima
+   porque elas rodam de novo a cada resize — e ninguém quer o mesmo clique
+   registrado cinco vezes. */
+function wireReduced() {
+  if (reducedWired) return;
+  reducedWired = true;
+
+  /* O link TRAILER do menu passa a ser a porta de entrada do vídeo */
+  const trailerLink = document.querySelector(".nav__link");
+
+  trailerLink.addEventListener("click", e => {
+    e.preventDefault();
+    openTrailer();
+  });
+
+  document.addEventListener("keydown", e => {
+    if (e.key === "Escape" && rv.w > 0) closeTrailer();
+  });
+
+  /* Cada personagem da lista vira um botão de verdade */
+  castItems.forEach((li, i) => {
+    li.setAttribute("role", "button");
+    li.setAttribute("tabindex", "0");
+
+    li.addEventListener("click", () => showCast(i));
+    li.addEventListener("keydown", e => {
+      if (e.key !== "Enter" && e.key !== " ") return;
+      e.preventDefault();
+      showCast(i);
+    });
+  });
+}
+
+
+/* ==========================================================================
+   6 — BOOT E RESIZE
+   ========================================================================== */
+function build() {
+  resizeCanvas();
+
+  if (REDUCED) {
+    staticHero();
+    staticCast();
+    wireReduced();
+    return;
+  }
+
+  buildTimeline();
+  buildCast();
+}
+
+build();
 
 /* As fontes chegam depois do primeiro paint e mudam a quebra de linha:
    refaz o split (e as medidas do elenco) para tudo cair no lugar certo. */
 if (document.fonts && document.fonts.ready) {
   document.fonts.ready.then(() => {
-    buildTimeline();
-    buildCast();
-    ScrollTrigger.refresh();
+    build();
+    if (!REDUCED) ScrollTrigger.refresh();
   });
 }
 
@@ -630,17 +840,30 @@ if (document.fonts && document.fonts.ready) {
 let lastWidth = window.innerWidth;
 let resizeTimer;
 
-// window.addEventListener("resize", () => {
-//   resizeCanvas();
-//   castMedia.style.setProperty("--media-h", castMedia.clientHeight + "px");
+window.addEventListener("resize", () => {
+  resizeCanvas();
+  castMedia.style.setProperty("--media-h", castMedia.clientHeight + "px");
 
-//   if (window.innerWidth === lastWidth) return;
-//   lastWidth = window.innerWidth;
+  /* o frame do trailer é medido em px, então acompanha a altura sempre */
+  reveal.style.setProperty("--frame-h", window.innerHeight + "px");
 
-//   clearTimeout(resizeTimer);
-//   resizeTimer = setTimeout(() => {
-//     buildTimeline();
-//     buildCast();
-//     ScrollTrigger.refresh();
-//   }, 250);
-// });
+  if (window.innerWidth === lastWidth) return;
+  lastWidth = window.innerWidth;
+
+  /* Rebuild é caro (mata timelines, refaz o split, remede tudo): só depois
+     que a pessoa para de arrastar a janela. */
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => {
+    build();
+    if (!REDUCED) ScrollTrigger.refresh();
+  }, 250);
+});
+
+/* Girar o celular muda largura E altura de uma vez; o evento de resize nem
+   sempre chega com as medidas novas, então o rebuild espera um tique. */
+window.addEventListener("orientationchange", () => {
+  setTimeout(() => {
+    build();
+    if (!REDUCED) ScrollTrigger.refresh();
+  }, 300);
+});
