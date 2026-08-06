@@ -49,14 +49,51 @@ const ctx    = canvas.getContext("2d", { alpha: false });
    reprodução suave mesmo com só 59 imagens. */
 const playhead = { frame: 0 };
 
+/* --------------------------------------------------------------------------
+   Carregamento em fila.
+   Disparar os 59 `src` de uma vez faz o navegador (em HTTP/2) baixar todos em
+   paralelo: os primeiros frames — justamente os que aparecem primeiro —
+   chegam junto com os últimos, e ainda disputam banda com a fonte e a arte da
+   Hero. A fila mantém a ORDEM e limita a quantidade de downloads simultâneos,
+   então o começo da sequência fica pronto quase de imediato e o resto vai
+   entrando enquanto a pessoa lê a primeira sinopse.
+   -------------------------------------------------------------------------- */
+const PARALLEL_LOADS = 4;
+
 const frames = [];
+const sources = [];
+
 for (let i = 1; i <= FRAME_COUNT; i++) {
   const img = new Image();
-  img.src = `assets/frames/ezgif-frame-${String(i).padStart(3, "0")}.jpg`;
+  img.decoding = "async";
   /* redesenha assim que cada imagem chega, para o canvas nunca ficar vazio */
-  img.addEventListener("load", render, { once: true });
+  img.addEventListener("load", onFrameSettled, { once: true });
+  /* um frame que falhou não pode travar a fila: o render pula quem não tem
+     naturalWidth e o crossfade segue com o vizinho */
+  img.addEventListener("error", onFrameSettled, { once: true });
+
   frames.push(img);
+  sources.push(`assets/frames/ezgif-frame-${String(i).padStart(3, "0")}.jpg`);
 }
+
+let nextFrame = 0;
+let inFlight = 0;
+
+function pumpFrames() {
+  while (nextFrame < sources.length && inFlight < PARALLEL_LOADS) {
+    frames[nextFrame].src = sources[nextFrame];
+    nextFrame++;
+    inFlight++;
+  }
+}
+
+function onFrameSettled() {
+  inFlight--;
+  render();
+  pumpFrames();
+}
+
+pumpFrames();
 
 /* Desenha a imagem cobrindo o canvas (equivalente a background-size: cover) */
 function drawCover(img, alpha) {
@@ -117,6 +154,10 @@ const ACT_1 = 10;
 const ACT_2 = 5;
 const TL_DURATION = ACT_1 + ACT_2;
 const SCROLL_PER_UNIT = 40;
+
+/* Progresso da timeline em que o trailer começa a ser baixado: 85% do ato 1,
+   ou seja, pouco antes de a máscara começar a abrir. */
+const ARM_AT = (ACT_1 * 0.85) / TL_DURATION;
 
 /* Quanto tempo cada letra leva para sumir/aparecer... */
 const CHAR_FADE = 0.5;
@@ -184,8 +225,9 @@ function applyReveal() {
 
 /* --------------------------------------------------------------------------
    PLAYER
-   Dois modos: "prévia" (mudo, em loop, com overlay — o que roda enquanto a
-   máscara abre) e "assistindo" (do começo, com som e com os controles).
+   Três estados: "dormindo" (preload="none", nada baixado), "prévia" (mudo, em
+   loop, com overlay — o que roda enquanto a máscara abre) e "assistindo" (do
+   começo, com som e com os controles).
    -------------------------------------------------------------------------- */
 const player = (() => {
   const root    = document.querySelector(".player");
@@ -204,6 +246,7 @@ const player = (() => {
 
   let watching = false;
   let seeking  = false;
+  let armed    = false;
 
   const fmt = s => {
     if (!isFinite(s) || s < 0) return "0:00";
@@ -211,6 +254,21 @@ const player = (() => {
   };
 
   /* ---------- modos ---------- */
+
+  /* O trailer tem ~18 MB e o <video> nasce com preload="none": nada é baixado
+     até esta função ser chamada. Quem chama é a própria rolagem, quando o
+     ato 2 se aproxima (ver o onUpdate do ScrollTrigger) — assim quem só passa
+     pela Hero e sai nunca paga o download. */
+  function arm() {
+    if (armed) return;
+    armed = true;
+
+    video.preload = "auto";
+    video.load();   // só mudar o preload não reinicia a busca do arquivo
+
+    preview();
+  }
+
   function preview() {
     video.loop = true;
     video.muted = true;
@@ -229,6 +287,8 @@ const player = (() => {
 
   function watch() {
     watching = true;
+    armed = true;
+    video.preload = "auto";
 
     root.classList.add("is-playing");
     root.classList.remove("is-paused", "is-muted");
@@ -319,9 +379,9 @@ const player = (() => {
     if (e.key === " " && watching) { e.preventDefault(); toggle.click(); }
   });
 
-  preview();
+  /* Nada de preview() aqui: o vídeo só acorda quando arm() for chamado. */
 
-  return { reset, setReady };
+  return { arm, reset, setReady };
 })();
 
 
@@ -350,6 +410,9 @@ function buildTimeline() {
 
   /* --- estado inicial do ato 2 --- */
   gsap.set([title, textBox], { x: 0 });
+  /* Precisa ser explícito: num rebuild o botão pode ter ficado visível, e o
+     .to() do passo 3.6 gravaria opacity 1 como valor INICIAL do tween. */
+  gsap.set(".player__big", { opacity: 0, scale: .75 });
   measurePush();
   rv.w = 0;
   rv.h = 0;
@@ -370,6 +433,10 @@ function buildTimeline() {
          (rolando pra cima ou pra baixo) devolve o trailer ao modo prévia,
          para não deixar o áudio tocando fora da tela */
       onUpdate: self => {
+        /* Perto do fim do ato 1 o trailer começa a baixar, com folga para já
+           estar bufferizado quando a máscara abrir. */
+        if (self.progress > ARM_AT) player.arm();
+
         const open = self.progress > 0.99;
         player.setReady(open);
         if (!open) player.reset();
@@ -610,16 +677,19 @@ function buildCast() {
 /* ==========================================================================
    5 — BOOT E RESIZE
    ========================================================================== */
-resizeCanvas();
-buildTimeline();
-buildCast();
+function build() {
+  resizeCanvas();
+  buildTimeline();
+  buildCast();
+}
+
+build();
 
 /* As fontes chegam depois do primeiro paint e mudam a quebra de linha:
    refaz o split (e as medidas do elenco) para tudo cair no lugar certo. */
 if (document.fonts && document.fonts.ready) {
   document.fonts.ready.then(() => {
-    buildTimeline();
-    buildCast();
+    build();
     ScrollTrigger.refresh();
   });
 }
@@ -630,17 +700,30 @@ if (document.fonts && document.fonts.ready) {
 let lastWidth = window.innerWidth;
 let resizeTimer;
 
-// window.addEventListener("resize", () => {
-//   resizeCanvas();
-//   castMedia.style.setProperty("--media-h", castMedia.clientHeight + "px");
+window.addEventListener("resize", () => {
+  resizeCanvas();
+  castMedia.style.setProperty("--media-h", castMedia.clientHeight + "px");
 
-//   if (window.innerWidth === lastWidth) return;
-//   lastWidth = window.innerWidth;
+  /* o frame do trailer é medido em px, então acompanha a altura sempre */
+  reveal.style.setProperty("--frame-h", window.innerHeight + "px");
 
-//   clearTimeout(resizeTimer);
-//   resizeTimer = setTimeout(() => {
-//     buildTimeline();
-//     buildCast();
-//     ScrollTrigger.refresh();
-//   }, 250);
-// });
+  if (window.innerWidth === lastWidth) return;
+  lastWidth = window.innerWidth;
+
+  /* Rebuild é caro (mata timelines, refaz o split, remede tudo): só depois
+     que a pessoa para de arrastar a janela. */
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => {
+    build();
+    ScrollTrigger.refresh();
+  }, 250);
+});
+
+/* Girar o celular muda largura E altura de uma vez; o evento de resize nem
+   sempre chega com as medidas novas, então o rebuild espera um tique. */
+window.addEventListener("orientationchange", () => {
+  setTimeout(() => {
+    build();
+    ScrollTrigger.refresh();
+  }, 300);
+});

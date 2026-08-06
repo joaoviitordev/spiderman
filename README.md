@@ -18,7 +18,6 @@ HTML, CSS e JavaScript puros, com todas as animações dirigidas pela rolagem vi
 - [Elenco](#elenco)
 - [Ajustes rápidos](#ajustes-rápidos)
 - [Acessibilidade](#acessibilidade)
-- [Pendências conhecidas](#pendências-conhecidas)
 
 ---
 
@@ -106,12 +105,12 @@ Uma máscara abre do centro: primeiro a altura (vira uma faixa horizontal),
 depois a largura. O logo e a sinopse não são animados por tempo — eles são
 **empurrados** pela borda da máscara: enquanto a borda não os alcança, ficam
 parados; a partir do encontro, andam colados nela
-([main.js:175-182](main.js#L175-L182)). O frame do vídeo já nasce com a altura
+([main.js:220-222](main.js#L220-L222)). O frame do vídeo já nasce com a altura
 final, então o trailer não estica: só é revelado.
 
 ### O player
 
-Tem dois modos ([main.js:190-325](main.js#L190-L325)):
+Tem dois modos ([main.js:232-385](main.js#L232-L385)):
 
 - **prévia** — mudo, em loop, com overlay escuro; é o que roda enquanto a
   máscara abre;
@@ -154,7 +153,7 @@ o HTML, em três lugares que precisam ficar na mesma ordem:
 
 Para mudar a **quantidade** de atores, acrescente/remova um `.cast__slide`, um
 `.cast__item` e um `.cast__shot` (com a foto em `assets/elenco/`) — o
-`STOPS` se ajusta sozinho ([main.js:499](main.js#L499)).
+`STOPS` se ajusta sozinho ([main.js:566](main.js#L566)).
 
 **Ritmo das animações** — constantes no topo de cada bloco de
 [main.js](main.js):
