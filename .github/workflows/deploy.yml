@@ -1,0 +1,58 @@
+
+# Publica o site no GitHub Pages.
+#
+# O projeto é HTML/CSS/JS puro, sem build: o job só empacota a raiz do repo
+# como artefato e manda pro Pages. Nada de Jekyll no caminho — era o builder
+# legado que vinha travando na fila e derrubando os deploys.
+#
+# Para isto valer, o repositório precisa estar em
+#   Settings -> Pages -> Build and deployment -> Source: GitHub Actions
+# (trocando de "Deploy from a branch", que é o modo legado).
+
+name: Deploy GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  # permite disparar o deploy na mão pela aba Actions
+  workflow_dispatch:
+
+# Permissões mínimas que o deploy-pages exige
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Um deploy por vez. cancel-in-progress: false para não matar um deploy que já
+# começou — o que sobra na fila é descartado, e o último push sempre vence.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        # o repo tem ~21 MB de assets (59 frames + trailer.mp4); sem histórico
+        # o clone fica bem mais rápido
+        with:
+          fetch-depth: 1
+
+      - name: Configura o Pages
+        uses: actions/configure-pages@v5
+
+      - name: Empacota a raiz do repo
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+
+      - name: Publica
+        id: deployment
+        uses: actions/deploy-pages@v4
