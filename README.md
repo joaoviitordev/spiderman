@@ -179,16 +179,3 @@ Para mudar a **quantidade** de atores, acrescente/remova um `.cast__slide`, um
   `aria-valuenow` atualizado.
 - Arte decorativa marcada com `aria-hidden` e `alt=""`.
 - O nome ativo do elenco recebe `aria-current="true"`.
-
-## Pendências conhecidas
-
-- **Elenco com placeholders**: o HTML ainda traz "Ator Um … Ator Cinco". Os
-  nomes reais da tabela acima precisam ser preenchidos — e são **seis atores
-  para cinco slots**, então falta decidir se entra um sexto par foto + nome ou
-  se um dos nomes fica de fora.
-- **Resize desativado**: o listener de `resize` está comentado no fim de
-  [main.js:633-646](main.js#L633-L646). Redimensionar a janela não refaz as
-  timelines nem as medidas.
-- **Peso dos assets**: 59 JPGs + o `trailer.mp4` carregam sem lazy-load; só o
-  primeiro frame tem `preload`.
-- **Sem fallback para `prefers-reduced-motion`**.
